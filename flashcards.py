@@ -1,92 +1,133 @@
+import io
+import logging
+import re
+import random
+
 class Flashcards:
     def __init__(self):
         self.cards = {}
         self.on = True
+        self.buffer = io.StringIO()
+
+    def app_print(self, text):
+        self.buffer.write(text + "\n")
+        print(text)
+
+    def app_input(self):
+        text = input()
+        self.buffer.write(text + "\n")
+        return text
 
     def user_add(self):
-        print("The card:")
-        while True:
-            term = input()
-            if term in self.cards:
-                print(f'The card "{term}" already exists. Try again:')
-            else:
-                break
+        self.app_print("The card:")
+        while (term := self.app_input()) in self.cards:
+            self.app_print(f'The card "{term}" already exists. Try again:')
 
-        print("The definition of the card:")
-        while True:
-            term_def = input()
-            if term_def in self.cards.values():
-                print(f'The definition "{term_def}" already exists. Try again:')
-            else:
-                break
+        self.app_print("The definition of the card:")
+        while (term_def := self.app_input()) in {v[0] for v in self.cards.values()}:
+            self.app_print(f'The definition "{term_def}" already exists. Try again:')
 
-        self.cards[term] = term_def
-        print(f'The pair("{term}": "{term_def}") has been added.')
+        self.cards[term] = [term_def, 0]
+        self.app_print(f'The pair("{term}": "{term_def}") has been added.')
 
     def user_remove(self):
-        print("Which card?")
-        term = input()
+        self.app_print("Which card?")
+        term = self.app_input()
+
         if term in self.cards:
             del self.cards[term]
-            print("The card has been removed.")
+            self.app_print("The card has been removed.")
         else:
-            print(f"""Can't remove "{term}": there is no such card." """)
+            self.app_print(f"""Can't remove "{term}": there is no such card." """)
 
     def user_import(self):
-        print("File name:")
-        file_name = input()
+        self.app_print("File name:")
+        file_name = self.app_input()
 
         try:
             with open(file_name, "r", encoding="utf-8") as file:
-                new_cards = {}
-                cards_list = file.readline().strip().split('""')
-                for card in cards_list:
-                    term, term_def = card.strip('"').split(''":"'', 1)
-                    new_cards[term] = term_def
-            self.cards = self.cards | new_cards
-            print(f"{len(new_cards)} cards have been loaded.")
+                pattern = r'"(.*?)":"(.*?)"\s(\d+)'
+                matches = re.findall(pattern, file.read().strip())
+                new_cards = {term: [term_def, mis] for term, term_def, mis in matches}
+            self.cards.update(new_cards)
+            self.app_print(f"{len(new_cards)} cards have been loaded.")
         except FileNotFoundError:
-            print("File not found.")
+            self.app_print("File not found.")
 
     def user_export(self):
-        print("File name:")
-        file_name = input()
+        self.app_print("File name:")
+        file_name = self.app_input()
 
         with open(file_name, "a", encoding="utf-8") as file:
-            new_str = ''
-            for term in self.cards:
-                new_str += f'"{term}":"{self.cards[term]}"'
+            content = "".join(f'"{term}":"{self.cards[term][0]}" {self.cards[term][1]}' for term in self.cards)
+            file.write(content)
 
-            file.write(new_str)
-
-        print(f"{len(self.cards)} cards have been saved.")
+        self.app_print(f"{len(self.cards)} cards have been saved.")
 
     def user_ask(self):
-        import random
+        self.app_print("How many times to ask?")
+        n = int(self.app_input())
+        terms = random.choices(list(self.cards), k=n)
 
-        print("How many times to ask?")
-        n = int(input())
-        terms = random.choices(list(self.cards.keys()), k=n)
         for term in terms:
-            print(f'Print the definition of "{term}":')
-            user_answer = input()
-            if user_answer == self.cards[term]:
-                print("Correct!")
+            self.app_print(f'Print the definition of "{term}":')
+            user_answer = self.app_input()
+            correct_answer = self.cards[term][0]
+
+            if user_answer == correct_answer:
+                self.app_print("Correct!")
             else:
-                right_term = next((k for k, v in self.cards.items() if v == user_answer), None)
+                self.cards[term][1] += 1
+                right_term = next((k for k, v in self.cards.items() if v[0] == user_answer), None)
                 if right_term:
-                    print(f'Wrong. The right answer is "{self.cards[term]}", but your definition is correct for "{right_term}"')
+                    self.app_print(f'Wrong. The right answer is "{correct_answer}", but your definition is correct for "{right_term}"')
                 else:
-                    print(f'Wrong. The right answer is "{self.cards[term]}".')
+                    self.app_print(f'Wrong. The right answer is "{correct_answer}".')
 
     def user_exit(self):
-        print("Bye bye!")
+        self.app_print("Bye bye!")
         self.on = False
+
+    def user_log(self):
+        self.app_print("File name:")
+        file_name = self.app_input()
+
+        handler = logging.FileHandler(file_name, mode='a', encoding='utf-8')
+        handler.setFormatter(logging.Formatter('%(message)s'))
+
+        logger = logging.getLogger("FlashcardsLogger")
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(handler)
+
+        self.buffer.seek(0)
+        content = self.buffer.read()
+        logger.debug(content)
+
+        handler.close()
+        self.app_print('The log has been saved.')
+
+    def user_hardest(self):
+        max_mistakes = max((card[1] for card in self.cards.values()), default=0)
+        if max_mistakes == 0:
+            self.app_print("There are no cards with errors.")
+            return
+
+        hardest_cards = [term for term in self.cards if self.cards[term][1] == max_mistakes]
+        term_list = '", "'.join(hardest_cards)
+        if len(hardest_cards) == 1:
+            self.app_print(f'The hardest card is "{term_list}". You have {max_mistakes} errors answering it.')
+        else:
+            self.app_print(f'The hardest cards are "{term_list}". You have {max_mistakes} errors answering them.')
+
+    def user_reset(self):
+        for value in self.cards.values():
+            value[1] = 0
+        self.app_print('Card statistics have been reset.')
 
 
 if __name__ == "__main__":
     flashcards = Flashcards()
     while flashcards.on:
-        print("Input the action (add, remove, import, export, ask, exit):")
-        action = input().strip()
-        getattr(flashcards, f"user_{action}", None)()
+        flashcards.app_print("Input the action (add, remove, import, export, ask, exit, log, hardest card, reset stats):")
+        action = flashcards.app_input()
+        getattr(flashcards, f"user_{action.split()[0]}", None)()
