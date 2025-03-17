@@ -2,12 +2,16 @@ import io
 import logging
 import re
 import random
+import argparse
+
 
 class Flashcards:
-    def __init__(self):
+    def __init__(self, import_file, export_file):
         self.cards = {}
         self.on = True
         self.buffer = io.StringIO()
+        self.import_file = import_file
+        self.export_file = export_file
 
     def app_print(self, text):
         self.buffer.write(text + "\n")
@@ -17,6 +21,10 @@ class Flashcards:
         text = input()
         self.buffer.write(text + "\n")
         return text
+
+    def get_file_name(self):
+        self.app_print("File name:")
+        return self.app_input()
 
     def user_add(self):
         self.app_print("The card:")
@@ -41,22 +49,20 @@ class Flashcards:
             self.app_print(f"""Can't remove "{term}": there is no such card." """)
 
     def user_import(self):
-        self.app_print("File name:")
-        file_name = self.app_input()
+        file_name = self.import_file or self.get_file_name()
 
         try:
             with open(file_name, "r", encoding="utf-8") as file:
                 pattern = r'"(.*?)":"(.*?)"\s(\d+)'
                 matches = re.findall(pattern, file.read().strip())
-                new_cards = {term: [term_def, mis] for term, term_def, mis in matches}
+                new_cards = {term: [term_def, int(mis)] for term, term_def, mis in matches}
             self.cards.update(new_cards)
             self.app_print(f"{len(new_cards)} cards have been loaded.")
         except FileNotFoundError:
             self.app_print("File not found.")
 
     def user_export(self):
-        self.app_print("File name:")
-        file_name = self.app_input()
+        file_name = self.export_file or self.get_file_name()
 
         with open(file_name, "a", encoding="utf-8") as file:
             content = "".join(f'"{term}":"{self.cards[term][0]}" {self.cards[term][1]}' for term in self.cards)
@@ -126,8 +132,19 @@ class Flashcards:
 
 
 if __name__ == "__main__":
-    flashcards = Flashcards()
+    parser = argparse.ArgumentParser(description="Input and output files")
+    parser.add_argument("--import_from")
+    parser.add_argument("--export_to")
+    files = parser.parse_args()
+
+    flashcards = Flashcards(files.import_from, files.export_to)
+    if flashcards.import_file:
+        flashcards.user_import()
+
     while flashcards.on:
         flashcards.app_print("Input the action (add, remove, import, export, ask, exit, log, hardest card, reset stats):")
         action = flashcards.app_input()
         getattr(flashcards, f"user_{action.split()[0]}", None)()
+
+    if flashcards.export_file:
+        flashcards.user_export()
